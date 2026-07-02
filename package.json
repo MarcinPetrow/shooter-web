@@ -1,0 +1,14 @@
+{
+  "name": "shooter-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser terrain shooter prototype with physics, bots, grapple, and destructible terrain.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "sync-pages": "rm -rf docs && mkdir -p docs && cp -R public/. docs/ && touch docs/.nojekyll"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

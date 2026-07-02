@@ -1,0 +1,187 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b1016;
+  --panel: rgba(10, 16, 24, 0.88);
+  --panel-edge: rgba(190, 215, 255, 0.14);
+  --text: #ebf4ff;
+  --muted: #98abc2;
+  --accent: #ff6a3d;
+  --accent-soft: rgba(255, 106, 61, 0.2);
+  --terrain: #35444f;
+  --terrain-top: #5d7b52;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top, rgba(77, 105, 144, 0.32), transparent 30%),
+    linear-gradient(180deg, #182536 0%, #081018 62%, #04070a 100%);
+}
+
+.hud-shell {
+  width: min(1500px, calc(100vw - 32px));
+  margin: 16px auto;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 18px 22px;
+  border: 1px solid var(--panel-edge);
+  border-radius: 20px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.72rem;
+}
+
+h1, h2, p, ul {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+}
+
+.scoreboard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.scoreboard div {
+  min-width: 92px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.scoreboard span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+.scoreboard strong {
+  font-size: 1.3rem;
+}
+
+.game-frame {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+}
+
+#gameCanvas {
+  width: 100%;
+  display: block;
+  border-radius: 24px;
+  border: 1px solid var(--panel-edge);
+  background:
+    linear-gradient(180deg, rgba(149, 187, 255, 0.1), rgba(40, 62, 86, 0.04)),
+    linear-gradient(180deg, #5a7899 0%, #1e3348 44%, #132433 100%);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+}
+
+.panel {
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid var(--panel-edge);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.panel section {
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.panel h2 {
+  margin-bottom: 10px;
+  font-size: 1rem;
+}
+
+.panel p,
+.panel li {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.bot-control {
+  display: grid;
+  gap: 10px;
+}
+
+.bot-control span,
+.bot-control strong {
+  color: var(--text);
+}
+
+.bot-control input {
+  width: 100%;
+}
+
+.panel ul {
+  padding-left: 18px;
+}
+
+kbd {
+  padding: 2px 7px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font-family: inherit;
+}
+
+@media (max-width: 1100px) {
+  .game-frame {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .hud-shell {
+    width: min(100vw - 16px, 1500px);
+    margin: 8px auto;
+  }
+
+  .topbar {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .scoreboard {
+    width: 100%;
+  }
+
+  .scoreboard div {
+    flex: 1 1 90px;
+  }
+
+  #gameCanvas,
+  .panel {
+    border-radius: 18px;
+  }
+}
