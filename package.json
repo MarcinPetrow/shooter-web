@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "sync-pages": "rm -rf docs && mkdir -p docs && cp -R public/. docs/ && touch docs/.nojekyll"
+    "build:pages": "rm -rf docs && mkdir -p docs && cp -R public/. docs/ && touch docs/.nojekyll",
+    "sync-pages": "npm run build:pages"
   },
   "engines": {
     "node": ">=18"
