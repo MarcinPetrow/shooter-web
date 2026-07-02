@@ -127,7 +127,7 @@ let desiredBotCount = 6;
 const MAX_GRENADES = 3;
 const pickupDefinitions = {
   medkit: {
-    label: "Apteczka",
+    label: "Medkit",
     color: "#d85e5e",
     accent: "#fff0f0",
     respawn: 16,
@@ -139,7 +139,7 @@ const pickupDefinitions = {
     respawn: 13,
   },
   grenades: {
-    label: "Granaty",
+    label: "Grenades",
     color: "#70b978",
     accent: "#dbffe0",
     respawn: 20,
@@ -162,6 +162,15 @@ const terrainCtx = terrainCanvas.getContext("2d");
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function resizeCanvas() {
+  const width = Math.max(320, Math.floor(window.innerWidth));
+  const height = Math.max(240, Math.floor(window.innerHeight));
+  canvas.width = width;
+  canvas.height = height;
+  sceneCanvas.width = width;
+  sceneCanvas.height = height;
 }
 
 function rand(min, max) {
@@ -694,7 +703,7 @@ function setBotCount(count) {
   ui.botCountValue.textContent = String(desiredBotCount);
   spawnBots();
   bots.forEach(respawnActor);
-  ui.status.textContent = `Boty: ${desiredBotCount}`;
+  ui.status.textContent = `Bots: ${desiredBotCount}`;
 }
 
 function allActors() {
@@ -752,7 +761,7 @@ function switchWeapon(actor, weaponKey) {
   actor.fireQueue = 0;
   actor.fireQueueDelay = 0;
   if (actor === player) {
-    ui.status.textContent = `Bron: ${getWeaponStats(actor).label}`;
+    ui.status.textContent = `Weapon: ${getWeaponStats(actor).label}`;
   }
 }
 
@@ -841,7 +850,7 @@ function shoot(actor) {
   const weapon = getWeaponStats(actor);
   if (actor.ammo <= 0) {
     actor.reload = weapon.reloadTime;
-    ui.status.textContent = actor === player ? "Przeladowanie." : ui.status.textContent;
+    ui.status.textContent = actor === player ? "Reloading." : ui.status.textContent;
     return;
   }
 
@@ -909,8 +918,8 @@ function damageActor(actor, amount, source) {
 
   if (source && source !== actor) {
     source.kills += 1;
-    if (source === player) {
-      ui.status.textContent = `Eliminacja: ${actor.name}`;
+      if (source === player) {
+      ui.status.textContent = `Eliminated: ${actor.name}`;
     }
   }
 }
@@ -1022,7 +1031,7 @@ function updatePlayer(dt) {
           y: hit.y,
           length: Math.max(80, Math.hypot(hit.x - player.x, hit.y - player.y) * 0.72),
         };
-        ui.status.textContent = "Hak zaczepiony.";
+        ui.status.textContent = "Grapple attached.";
       }
     }
   } else {
@@ -1134,7 +1143,7 @@ function applyPickup(actor, pickup) {
   pickup.timer = pickupDefinitions[pickup.type].respawn;
 
   if (actor === player) {
-    ui.status.textContent = `Podniesiono: ${pickupDefinitions[pickup.type].label}`;
+    ui.status.textContent = `Picked up: ${pickupDefinitions[pickup.type].label}`;
   }
 
   stampCraterDecor(pickup.x, pickup.y, 12);
@@ -1845,6 +1854,8 @@ window.addEventListener("keyup", (event) => {
   keys.delete(event.code);
 });
 
+window.addEventListener("resize", resizeCanvas);
+
 canvas.addEventListener("mousemove", (event) => {
   const rect = canvas.getBoundingClientRect();
   mouse.x = ((event.clientX - rect.left) / rect.width) * canvas.width;
@@ -1873,12 +1884,13 @@ canvas.addEventListener("contextmenu", (event) => {
   event.preventDefault();
 });
 
+resizeCanvas();
 createTerrain();
 spawnBots();
 rebuildPickups();
 respawnActor(player);
 bots.forEach(respawnActor);
-ui.status.textContent = "Arena gotowa. LPM strzal, PPM hak.";
+ui.status.textContent = "Arena ready. LMB fire, RMB grapple.";
 ui.botCountInput.value = String(desiredBotCount);
 ui.botCountValue.textContent = String(desiredBotCount);
 ui.botCountInput.addEventListener("input", (event) => {

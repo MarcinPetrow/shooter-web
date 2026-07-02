@@ -18,6 +18,7 @@
 body {
   margin: 0;
   min-height: 100vh;
+  overflow: hidden;
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
   color: var(--text);
   background:
@@ -25,29 +26,31 @@ body {
     linear-gradient(180deg, #182536 0%, #081018 62%, #04070a 100%);
 }
 
-.hud-shell {
-  width: min(1500px, calc(100vw - 32px));
-  margin: 16px auto;
+.game-shell {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .topbar {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
-  padding: 18px 22px;
-  border: 1px solid var(--panel-edge);
-  border-radius: 20px;
-  background: var(--panel);
-  backdrop-filter: blur(14px);
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(8, 12, 18, 0.82);
+  backdrop-filter: blur(10px);
 }
 
-.eyebrow {
-  margin: 0 0 6px;
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 0.72rem;
+.overlay {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  pointer-events: none;
+}
+
+.overlay > * {
+  pointer-events: auto;
 }
 
 h1, h2, p, ul {
@@ -68,8 +71,7 @@ h1 {
 .scoreboard div {
   min-width: 92px;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02));
+  background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -84,28 +86,25 @@ h1 {
   font-size: 1.3rem;
 }
 
-.game-frame {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 14px;
-}
-
 #gameCanvas {
-  width: 100%;
+  width: 100vw;
+  height: 100vh;
   display: block;
-  border-radius: 24px;
-  border: 1px solid var(--panel-edge);
   background:
     linear-gradient(180deg, rgba(149, 187, 255, 0.1), rgba(40, 62, 86, 0.04)),
     linear-gradient(180deg, #5a7899 0%, #1e3348 44%, #132433 100%);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
 }
 
 .panel {
+  position: absolute;
+  top: 92px;
+  right: 0;
+  width: min(320px, 32vw);
+  max-height: calc(100vh - 92px);
+  overflow: auto;
   padding: 18px;
-  border-radius: 24px;
-  border: 1px solid var(--panel-edge);
-  background: var(--panel);
+  border-left: 1px solid var(--panel-edge);
+  background: rgba(8, 12, 18, 0.84);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -113,8 +112,7 @@ h1 {
 
 .panel section {
   padding: 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .panel h2 {
@@ -156,20 +154,14 @@ kbd {
 }
 
 @media (max-width: 1100px) {
-  .game-frame {
-    grid-template-columns: 1fr;
+  .topbar {
+    justify-content: flex-start;
   }
 }
 
 @media (max-width: 720px) {
-  .hud-shell {
-    width: min(100vw - 16px, 1500px);
-    margin: 8px auto;
-  }
-
   .topbar {
-    padding: 14px;
-    border-radius: 16px;
+    padding: 8px;
   }
 
   .scoreboard {
@@ -180,8 +172,14 @@ kbd {
     flex: 1 1 90px;
   }
 
-  #gameCanvas,
   .panel {
-    border-radius: 18px;
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 10px;
+    width: auto;
+    max-height: min(46vh, 420px);
+    border-left: none;
+    border-top: 1px solid var(--panel-edge);
   }
 }

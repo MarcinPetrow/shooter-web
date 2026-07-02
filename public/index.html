@@ -7,60 +7,50 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <div class="hud-shell">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Terrain Shooter</p>
-          <h1>Shooter Web</h1>
-        </div>
-        <div class="scoreboard">
-          <div><span>HP</span><strong id="hpValue">100</strong></div>
-          <div><span>Weapon</span><strong id="weaponValue">Rifle</strong></div>
-          <div><span>Ammo</span><strong id="ammoValue">30</strong></div>
-          <div><span>Grenades</span><strong id="grenadeValue">3</strong></div>
-          <div><span>Kills</span><strong id="killsValue">0</strong></div>
-        </div>
-      </header>
+    <main class="game-shell">
+      <canvas id="gameCanvas" width="1280" height="720"></canvas>
 
-      <main class="game-frame">
-        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+      <div class="overlay">
+        <header class="topbar">
+          <div class="scoreboard">
+            <div><span>HP</span><strong id="hpValue">100</strong></div>
+            <div><span>Weapon</span><strong id="weaponValue">Rifle</strong></div>
+            <div><span>Ammo</span><strong id="ammoValue">30</strong></div>
+            <div><span>Grenades</span><strong id="grenadeValue">3</strong></div>
+            <div><span>Kills</span><strong id="killsValue">0</strong></div>
+          </div>
+        </header>
+
         <aside class="panel">
           <section>
-            <h2>Sterowanie</h2>
+            <h2>Controls</h2>
             <ul>
-              <li><kbd>A</kbd> <kbd>D</kbd> ruch</li>
-              <li><kbd>W</kbd> skok</li>
+              <li><kbd>A</kbd> <kbd>D</kbd> move</li>
+              <li><kbd>W</kbd> jump</li>
               <li><kbd>Shift</kbd> sprint</li>
-              <li><kbd>LPM</kbd> strzal</li>
-              <li><kbd>PPM</kbd> lina</li>
-              <li><kbd>G</kbd> granat</li>
-              <li><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> bronie</li>
+              <li><kbd>LMB</kbd> fire</li>
+              <li><kbd>RMB</kbd> grapple</li>
+              <li><kbd>G</kbd> grenade</li>
+              <li><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd> weapons</li>
               <li><kbd>R</kbd> respawn</li>
             </ul>
           </section>
           <section>
-            <h2>Tryb</h2>
-            <p>
-              Prototyp 2D z deformowalnym terenem, recoil, botami i hakiem do szybkiego
-              przemieszczania.
-            </p>
-          </section>
-          <section>
             <h2>Status</h2>
-            <p id="statusText">Wejdz na mape i utrzymaj wysokosc.</p>
+            <p id="statusText">Enter the arena and hold the high ground.</p>
           </section>
           <section>
-            <h2>Boty</h2>
+            <h2>Bots</h2>
             <label class="bot-control" for="botCountInput">
-              <span>Ilosc botow</span>
+              <span>Bot count</span>
               <input id="botCountInput" type="range" min="0" max="10" step="1" value="6" />
               <strong id="botCountValue">6</strong>
             </label>
           </section>
         </aside>
-      </main>
-    </div>
+      </div>
+    </main>
 
     <script type="module" src="./app.js"></script>
   </body>
-  </html>
+</html>
