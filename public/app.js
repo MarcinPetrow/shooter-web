@@ -6,7 +6,9 @@ sceneCanvas.height = canvas.height;
 const sceneCtx = sceneCanvas.getContext("2d");
 
 const ui = {
+  editToggle: document.getElementById("editToggle"),
   hp: document.getElementById("hpValue"),
+  fuel: document.getElementById("fuelValue"),
   weapon: document.getElementById("weaponValue"),
   ammo: document.getElementById("ammoValue"),
   grenade: document.getElementById("grenadeValue"),
@@ -125,6 +127,10 @@ let leftSpawnCursor = 0;
 let rightSpawnCursor = 0;
 let desiredBotCount = 6;
 const MAX_GRENADES = 3;
+const JETPACK_MAX_FUEL = 100;
+const JETPACK_DRAIN_PER_SECOND = 34;
+const JETPACK_REFILL_PER_SECOND = 22;
+const JETPACK_THRUST = 1200;
 const pickupDefinitions = {
   medkit: {
     label: "Medkit",
@@ -159,6 +165,56 @@ const terrainCanvas = document.createElement("canvas");
 terrainCanvas.width = WORLD_WIDTH;
 terrainCanvas.height = WORLD_HEIGHT;
 const terrainCtx = terrainCanvas.getContext("2d");
+let currentGroundHeights = [];
+const terrainLayout = {
+  profile: [
+    { x: 0, y: 0.71 },
+    { x: 0.08, y: 0.67 },
+    { x: 0.16, y: 0.6 },
+    { x: 0.25, y: 0.55 },
+    { x: 0.34, y: 0.6 },
+    { x: 0.43, y: 0.68 },
+    { x: 0.5, y: 0.745 },
+    { x: 0.57, y: 0.68 },
+    { x: 0.66, y: 0.6 },
+    { x: 0.75, y: 0.55 },
+    { x: 0.84, y: 0.6 },
+    { x: 0.92, y: 0.67 },
+    { x: 1, y: 0.71 },
+  ],
+  leftSideShelves: [
+    { x: 150, width: 360, lift: 50, height: 20, wobble: 4, minY: 0.26, maxY: 0.66, mirror: true, gapChance: 0.14 },
+    { x: 620, width: 280, lift: 118, height: 18, wobble: 6, minY: 0.26, maxY: 0.66, mirror: true, gapChance: 0.14 },
+    { x: 1020, width: 350, lift: 72, height: 20, wobble: 5, minY: 0.26, maxY: 0.66, mirror: true, gapChance: 0.14 },
+    { x: 1470, width: 260, lift: 144, height: 18, wobble: 6, minY: 0.26, maxY: 0.66, mirror: true, gapChance: 0.14 },
+  ],
+  bridgeShelves: [
+    { x: 760, width: 170, lift: 188, height: 14, wobble: 4, minY: 0.22, maxY: 0.54, gapChance: 0 },
+    { x: 1710, width: 190, lift: 214, height: 14, wobble: 4, minY: 0.22, maxY: 0.54, gapChance: 0 },
+    { x: 2310, width: 190, lift: 214, height: 14, wobble: 4, minY: 0.22, maxY: 0.54, gapChance: 0 },
+    { x: 3270, width: 170, lift: 188, height: 14, wobble: 4, minY: 0.22, maxY: 0.54, gapChance: 0 },
+  ],
+  jumpAssistShelves: [
+    { x: 340, width: 120, lift: 38, height: 13, wobble: 3, minY: 0.44, maxY: 0.69, mirror: true, gapChance: 0 },
+    { x: 1040, width: 120, lift: 42, height: 13, wobble: 3, minY: 0.44, maxY: 0.69, mirror: true, gapChance: 0 },
+    { x: 1520, width: 120, lift: 42, height: 13, wobble: 3, minY: 0.44, maxY: 0.69, mirror: true, gapChance: 0 },
+    { x: 1640, width: 110, lift: 34, height: 13, wobble: 3, minY: 0.44, maxY: 0.69, mirror: true, gapChance: 0 },
+  ],
+  spawnShelters: [
+    { x: 120, width: 180, lift: 20, height: 20, wobble: 3, minY: 0.54, maxY: 0.72, gapChance: 0 },
+    { x: WORLD_WIDTH - 300, width: 180, lift: 20, height: 20, wobble: 3, minY: 0.54, maxY: 0.72, gapChance: 0 },
+  ],
+  topCoverShelves: [
+    { x: WORLD_WIDTH * 0.5 - 110, width: 90, y: 0, height: 12, wobble: 2, gapChance: 0, centerOffset: -110 },
+    { x: WORLD_WIDTH * 0.5 + 20, width: 90, y: 0, height: 12, wobble: 2, gapChance: 0, centerOffset: 20 },
+  ],
+  shelfPolygons: [],
+};
+const editor = {
+  enabled: false,
+  hover: null,
+  dragging: null,
+};
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -175,6 +231,15 @@ function resizeCanvas() {
 
 function rand(min, max) {
   return min + Math.random() * (max - min);
+}
+
+function noise(seed) {
+  const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return value - Math.floor(value);
+}
+
+function randFromSeed(seed, min, max) {
+  return min + noise(seed) * (max - min);
 }
 
 function length(x, y) {
@@ -251,212 +316,427 @@ function impactTerrain(x, y, radius) {
   stampCraterDecor(x, y, Math.max(8, radius * 1.6));
 }
 
-function createTerrain() {
-  terrainCtx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+function emitJetpackExhaust(actor, thrustDir) {
+  const exhaustX = actor.x - thrustDir.x * (actor.radius + 5);
+  const exhaustY = actor.y + 6 - thrustDir.y * (actor.radius + 5);
 
-  const heights = [];
-  const arenaProfile = [
-    { x: 0, y: 0.71 },
-    { x: 0.08, y: 0.67 },
-    { x: 0.16, y: 0.6 },
-    { x: 0.25, y: 0.55 },
-    { x: 0.34, y: 0.6 },
-    { x: 0.43, y: 0.68 },
-    { x: 0.5, y: 0.745 },
-    { x: 0.57, y: 0.68 },
-    { x: 0.66, y: 0.6 },
-    { x: 0.75, y: 0.55 },
-    { x: 0.84, y: 0.6 },
-    { x: 0.92, y: 0.67 },
-    { x: 1, y: 0.71 },
-  ];
+  smoke.push({
+    x: exhaustX + rand(-2, 2),
+    y: exhaustY + rand(-2, 2),
+    vx: -thrustDir.x * rand(28, 72) + rand(-10, 10),
+    vy: -thrustDir.y * rand(28, 72) + rand(-14, 14),
+    life: 0.18,
+    maxLife: 0.18,
+    size: rand(7, 11),
+    growth: rand(18, 28),
+    color: "186,234,255",
+  });
 
-  function smoothstep(value) {
-    return value * value * (3 - 2 * value);
+  if (Math.random() < 0.65) {
+    sparks.push({
+      x: exhaustX,
+      y: exhaustY,
+      vx: -thrustDir.x * rand(70, 135),
+      vy: -thrustDir.y * rand(70, 135),
+      life: 0.07,
+      size: rand(1.8, 3.2),
+      color: "#ffffff",
+    });
   }
+}
 
-  function sampleProfile(normalizedX) {
-    for (let i = 0; i < arenaProfile.length - 1; i += 1) {
-      const left = arenaProfile[i];
-      const right = arenaProfile[i + 1];
-      if (normalizedX >= left.x && normalizedX <= right.x) {
-        const rawT = (normalizedX - left.x) / (right.x - left.x);
-        const t = smoothstep(rawT);
-        return left.y + (right.y - left.y) * t;
-      }
+function smoothstep(value) {
+  return value * value * (3 - 2 * value);
+}
+
+function sampleTerrainProfile(normalizedX) {
+  for (let i = 0; i < terrainLayout.profile.length - 1; i += 1) {
+    const left = terrainLayout.profile[i];
+    const right = terrainLayout.profile[i + 1];
+    if (normalizedX >= left.x && normalizedX <= right.x) {
+      const rawT = (normalizedX - left.x) / (right.x - left.x);
+      const t = smoothstep(rawT);
+      return left.y + (right.y - left.y) * t;
     }
-    return arenaProfile[arenaProfile.length - 1].y;
   }
 
+  return terrainLayout.profile[terrainLayout.profile.length - 1].y;
+}
+
+function buildGroundHeights() {
+  const heights = [];
   for (let x = 0; x <= WORLD_WIDTH; x += GROUND_STEP) {
     const normalizedX = x / WORLD_WIDTH;
-    const base = sampleProfile(normalizedX) * WORLD_HEIGHT;
+    const base = sampleTerrainProfile(normalizedX) * WORLD_HEIGHT;
     const distFromCenter = Math.abs(normalizedX - 0.5);
     const shaping =
       Math.sin(normalizedX * Math.PI * 4.2) * 7 +
       Math.sin(normalizedX * Math.PI * 9.6) * 2.5 +
       (0.5 - distFromCenter) * 8 +
-      rand(-1.8, 1.8);
+      randFromSeed(x * 0.37, -1.8, 1.8);
     const y = clamp(base + shaping, WORLD_HEIGHT * 0.52, WORLD_HEIGHT * 0.74);
     heights.push({ x, y });
   }
+  return heights;
+}
 
-  function groundHeightAt(sampleX) {
-    const clampedX = clamp(sampleX, 0, WORLD_WIDTH);
-    const index = clampedX / GROUND_STEP;
-    const leftIndex = Math.floor(index);
-    const rightIndex = Math.min(heights.length - 1, leftIndex + 1);
-    const blend = index - leftIndex;
-    const left = heights[leftIndex];
-    const right = heights[rightIndex];
-    return left.y + (right.y - left.y) * blend;
+function groundHeightAt(sampleX) {
+  if (currentGroundHeights.length === 0) {
+    currentGroundHeights = buildGroundHeights();
   }
 
-  function drawGroundTexture() {
-    terrainCtx.save();
-    terrainCtx.globalCompositeOperation = "source-atop";
+  const clampedX = clamp(sampleX, 0, WORLD_WIDTH);
+  const index = clampedX / GROUND_STEP;
+  const leftIndex = Math.floor(index);
+  const rightIndex = Math.min(currentGroundHeights.length - 1, leftIndex + 1);
+  const blend = index - leftIndex;
+  const left = currentGroundHeights[leftIndex];
+  const right = currentGroundHeights[rightIndex];
+  return left.y + (right.y - left.y) * blend;
+}
 
-    const rockGradient = terrainCtx.createLinearGradient(0, WORLD_HEIGHT * 0.46, 0, WORLD_HEIGHT);
-    rockGradient.addColorStop(0, "rgba(94, 114, 96, 0.12)");
-    rockGradient.addColorStop(0.28, "rgba(83, 95, 105, 0.24)");
-    rockGradient.addColorStop(0.62, "rgba(55, 66, 74, 0.34)");
-    rockGradient.addColorStop(1, "rgba(27, 33, 39, 0.46)");
-    terrainCtx.fillStyle = rockGradient;
-    terrainCtx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+function drawGroundTexture() {
+  terrainCtx.save();
+  terrainCtx.globalCompositeOperation = "source-atop";
 
-    for (let i = 0; i < 240; i += 1) {
-      const patchX = rand(0, WORLD_WIDTH);
-      const patchY = rand(WORLD_HEIGHT * 0.52, WORLD_HEIGHT * 0.96);
-      terrainCtx.fillStyle = i % 3 === 0 ? "rgba(118, 108, 82, 0.08)" : "rgba(255, 255, 255, 0.035)";
-      terrainCtx.beginPath();
-      terrainCtx.ellipse(patchX, patchY, rand(18, 90), rand(8, 28), rand(0, Math.PI), 0, Math.PI * 2);
-      terrainCtx.fill();
-    }
+  const rockGradient = terrainCtx.createLinearGradient(0, WORLD_HEIGHT * 0.46, 0, WORLD_HEIGHT);
+  rockGradient.addColorStop(0, "rgba(94, 114, 96, 0.12)");
+  rockGradient.addColorStop(0.28, "rgba(83, 95, 105, 0.24)");
+  rockGradient.addColorStop(0.62, "rgba(55, 66, 74, 0.34)");
+  rockGradient.addColorStop(1, "rgba(27, 33, 39, 0.46)");
+  terrainCtx.fillStyle = rockGradient;
+  terrainCtx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
-    for (let i = 0; i < 130; i += 1) {
-      const seamX = rand(0, WORLD_WIDTH);
-      const seamY = rand(WORLD_HEIGHT * 0.54, WORLD_HEIGHT * 0.92);
-      const seamLength = rand(18, 90);
-      terrainCtx.strokeStyle = "rgba(24, 28, 34, 0.18)";
-      terrainCtx.lineWidth = rand(1, 2.2);
-      terrainCtx.beginPath();
-      terrainCtx.moveTo(seamX, seamY);
-      terrainCtx.lineTo(seamX + seamLength, seamY + rand(-12, 12));
-      terrainCtx.stroke();
-    }
-
-    terrainCtx.restore();
-  }
-
-  function drawShelf(shelfX, shelfY, shelfWidth, shelfHeight, wobble = 6, withGapChance = 0.18) {
-    const topGradient = terrainCtx.createLinearGradient(shelfX, shelfY, shelfX, shelfY + shelfHeight);
-    topGradient.addColorStop(0, "#789369");
-    topGradient.addColorStop(0.26, "#61775a");
-    topGradient.addColorStop(1, "#39444d");
-
-    terrainCtx.fillStyle = topGradient;
+  for (let i = 0; i < 240; i += 1) {
+    const patchX = randFromSeed(i * 2.13, 0, WORLD_WIDTH);
+    const patchY = randFromSeed(i * 3.77, WORLD_HEIGHT * 0.52, WORLD_HEIGHT * 0.96);
+    terrainCtx.fillStyle = i % 3 === 0 ? "rgba(118, 108, 82, 0.08)" : "rgba(255, 255, 255, 0.035)";
     terrainCtx.beginPath();
-    terrainCtx.moveTo(shelfX, shelfY);
-    terrainCtx.quadraticCurveTo(
-      shelfX + shelfWidth * 0.22,
-      shelfY - wobble,
-      shelfX + shelfWidth * 0.48,
-      shelfY - wobble * 0.35,
+    terrainCtx.ellipse(
+      patchX,
+      patchY,
+      randFromSeed(i * 5.11, 18, 90),
+      randFromSeed(i * 7.19, 8, 28),
+      randFromSeed(i * 9.23, 0, Math.PI),
+      0,
+      Math.PI * 2,
     );
-    terrainCtx.quadraticCurveTo(
-      shelfX + shelfWidth * 0.78,
-      shelfY + wobble * 0.2,
-      shelfX + shelfWidth,
-      shelfY,
-    );
-    terrainCtx.lineTo(shelfX + shelfWidth - 18, shelfY + shelfHeight);
-    terrainCtx.quadraticCurveTo(
-      shelfX + shelfWidth * 0.54,
-      shelfY + shelfHeight + wobble * 0.16,
-      shelfX + 18,
-      shelfY + shelfHeight,
-    );
-    terrainCtx.closePath();
     terrainCtx.fill();
+  }
 
-    terrainCtx.strokeStyle = "#95ad7a";
-    terrainCtx.lineWidth = 4;
+  for (let i = 0; i < 130; i += 1) {
+    const seamX = randFromSeed(i * 1.71, 0, WORLD_WIDTH);
+    const seamY = randFromSeed(i * 2.81, WORLD_HEIGHT * 0.54, WORLD_HEIGHT * 0.92);
+    const seamLength = randFromSeed(i * 4.09, 18, 90);
+    terrainCtx.strokeStyle = "rgba(24, 28, 34, 0.18)";
+    terrainCtx.lineWidth = randFromSeed(i * 5.63, 1, 2.2);
     terrainCtx.beginPath();
-    terrainCtx.moveTo(shelfX + 10, shelfY + 1.5);
-    terrainCtx.quadraticCurveTo(
-      shelfX + shelfWidth * 0.34,
-      shelfY - wobble * 0.55,
-      shelfX + shelfWidth - 10,
-      shelfY + 1.5,
+    terrainCtx.moveTo(seamX, seamY);
+    terrainCtx.lineTo(seamX + seamLength, seamY + randFromSeed(i * 6.97, -12, 12));
+    terrainCtx.stroke();
+  }
+
+  terrainCtx.restore();
+}
+
+function drawShelf(shelfX, shelfY, shelfWidth, shelfHeight, wobble = 6, withGapChance = 0.18) {
+  const topGradient = terrainCtx.createLinearGradient(shelfX, shelfY, shelfX, shelfY + shelfHeight);
+  topGradient.addColorStop(0, "#789369");
+  topGradient.addColorStop(0.26, "#61775a");
+  topGradient.addColorStop(1, "#39444d");
+
+  terrainCtx.fillStyle = topGradient;
+  terrainCtx.beginPath();
+  terrainCtx.moveTo(shelfX, shelfY);
+  terrainCtx.quadraticCurveTo(
+    shelfX + shelfWidth * 0.22,
+    shelfY - wobble,
+    shelfX + shelfWidth * 0.48,
+    shelfY - wobble * 0.35,
+  );
+  terrainCtx.quadraticCurveTo(
+    shelfX + shelfWidth * 0.78,
+    shelfY + wobble * 0.2,
+    shelfX + shelfWidth,
+    shelfY,
+  );
+  terrainCtx.lineTo(shelfX + shelfWidth - 18, shelfY + shelfHeight);
+  terrainCtx.quadraticCurveTo(
+    shelfX + shelfWidth * 0.54,
+    shelfY + shelfHeight + wobble * 0.16,
+    shelfX + 18,
+    shelfY + shelfHeight,
+  );
+  terrainCtx.closePath();
+  terrainCtx.fill();
+
+  terrainCtx.strokeStyle = "#95ad7a";
+  terrainCtx.lineWidth = 4;
+  terrainCtx.beginPath();
+  terrainCtx.moveTo(shelfX + 10, shelfY + 1.5);
+  terrainCtx.quadraticCurveTo(
+    shelfX + shelfWidth * 0.34,
+    shelfY - wobble * 0.55,
+    shelfX + shelfWidth - 10,
+    shelfY + 1.5,
+  );
+  terrainCtx.stroke();
+
+  for (let i = 0; i < Math.max(3, Math.floor(shelfWidth / 90)); i += 1) {
+    const baseSeed = shelfX * 0.013 + shelfY * 0.021 + i * 1.7;
+    const mossX = shelfX + randFromSeed(baseSeed, 14, shelfWidth - 18);
+    const mossY = shelfY + randFromSeed(baseSeed + 1, 5, shelfHeight - 4);
+    terrainCtx.fillStyle = i % 2 === 0 ? "rgba(113, 132, 89, 0.24)" : "rgba(188, 166, 111, 0.12)";
+    terrainCtx.beginPath();
+    terrainCtx.ellipse(
+      mossX,
+      mossY,
+      randFromSeed(baseSeed + 2, 10, 22),
+      randFromSeed(baseSeed + 3, 4, 9),
+      randFromSeed(baseSeed + 4, 0, Math.PI),
+      0,
+      Math.PI * 2,
     );
-    terrainCtx.stroke();
-
-    for (let i = 0; i < Math.max(3, Math.floor(shelfWidth / 90)); i += 1) {
-      const mossX = shelfX + rand(14, shelfWidth - 18);
-      const mossY = shelfY + rand(5, shelfHeight - 4);
-      terrainCtx.fillStyle = i % 2 === 0 ? "rgba(113, 132, 89, 0.24)" : "rgba(188, 166, 111, 0.12)";
-      terrainCtx.beginPath();
-      terrainCtx.ellipse(mossX, mossY, rand(10, 22), rand(4, 9), rand(0, Math.PI), 0, Math.PI * 2);
-      terrainCtx.fill();
-    }
-
-    if (Math.random() < withGapChance) {
-      carveTerrain(shelfX + rand(44, shelfWidth - 44), shelfY + rand(4, shelfHeight - 3), rand(8, 12));
-    }
-  }
-
-  function stampCrate(x, y, size = 26) {
-    terrainCtx.fillStyle = "#7c5a3a";
-    terrainCtx.fillRect(x, y - size, size, size);
-    terrainCtx.strokeStyle = "#4c3524";
-    terrainCtx.lineWidth = 3;
-    terrainCtx.strokeRect(x, y - size, size, size);
-    terrainCtx.beginPath();
-    terrainCtx.moveTo(x + 4, y - size + 4);
-    terrainCtx.lineTo(x + size - 4, y - 4);
-    terrainCtx.moveTo(x + size - 4, y - size + 4);
-    terrainCtx.lineTo(x + 4, y - 4);
-    terrainCtx.stroke();
-  }
-
-  function stampBarrel(x, y, width = 18, height = 30) {
-    const barrelGradient = terrainCtx.createLinearGradient(x, y - height, x + width, y);
-    barrelGradient.addColorStop(0, "#7a5438");
-    barrelGradient.addColorStop(0.5, "#9d6a43");
-    barrelGradient.addColorStop(1, "#633f2a");
-    terrainCtx.fillStyle = barrelGradient;
-    terrainCtx.beginPath();
-    terrainCtx.roundRect(x, y - height, width, height, 6);
     terrainCtx.fill();
-    terrainCtx.strokeStyle = "#352319";
-    terrainCtx.lineWidth = 2;
-    terrainCtx.stroke();
-    terrainCtx.strokeStyle = "#c9b089";
-    terrainCtx.lineWidth = 2;
+  }
+
+  const gapSeed = shelfX * 0.017 + shelfY * 0.029;
+  if (noise(gapSeed) < withGapChance) {
+    carveTerrain(
+      shelfX + randFromSeed(gapSeed + 1, 44, shelfWidth - 44),
+      shelfY + randFromSeed(gapSeed + 2, 4, shelfHeight - 3),
+      randFromSeed(gapSeed + 3, 8, 12),
+    );
+  }
+}
+
+function stampCrate(x, y, size = 26) {
+  terrainCtx.fillStyle = "#7c5a3a";
+  terrainCtx.fillRect(x, y - size, size, size);
+  terrainCtx.strokeStyle = "#4c3524";
+  terrainCtx.lineWidth = 3;
+  terrainCtx.strokeRect(x, y - size, size, size);
+  terrainCtx.beginPath();
+  terrainCtx.moveTo(x + 4, y - size + 4);
+  terrainCtx.lineTo(x + size - 4, y - 4);
+  terrainCtx.moveTo(x + size - 4, y - size + 4);
+  terrainCtx.lineTo(x + 4, y - 4);
+  terrainCtx.stroke();
+}
+
+function stampBarrel(x, y, width = 18, height = 30) {
+  const barrelGradient = terrainCtx.createLinearGradient(x, y - height, x + width, y);
+  barrelGradient.addColorStop(0, "#7a5438");
+  barrelGradient.addColorStop(0.5, "#9d6a43");
+  barrelGradient.addColorStop(1, "#633f2a");
+  terrainCtx.fillStyle = barrelGradient;
+  terrainCtx.beginPath();
+  terrainCtx.roundRect(x, y - height, width, height, 6);
+  terrainCtx.fill();
+  terrainCtx.strokeStyle = "#352319";
+  terrainCtx.lineWidth = 2;
+  terrainCtx.stroke();
+  terrainCtx.strokeStyle = "#c9b089";
+  terrainCtx.lineWidth = 2;
+  terrainCtx.beginPath();
+  terrainCtx.moveTo(x + 2, y - height + 7);
+  terrainCtx.lineTo(x + width - 2, y - height + 7);
+  terrainCtx.moveTo(x + 2, y - height + 15);
+  terrainCtx.lineTo(x + width - 2, y - height + 15);
+  terrainCtx.lineTo(x + width - 2, y - height + 23);
+  terrainCtx.stroke();
+}
+
+function placeObstacleSet(baseX, baseY, variant = "crate") {
+  if (variant === "crate") {
+    stampCrate(baseX, baseY, 24);
+    if (noise(baseX * 0.03 + baseY * 0.07) < 0.45) {
+      stampCrate(baseX + 24, baseY, 20);
+    }
+    return;
+  }
+
+  stampBarrel(baseX, baseY, 18, 30);
+  if (noise(baseX * 0.05 + baseY * 0.09) < 0.4) {
+    stampBarrel(baseX + 18, baseY, 18, 30);
+  }
+}
+
+function mirrorX(leftX, width) {
+  return WORLD_WIDTH - leftX - width;
+}
+
+function getShelfWorldRect(shelf) {
+  if (typeof shelf.y === "number" && shelf.centerOffset == null) {
+    return { x: shelf.x, y: shelf.y, width: shelf.width, height: shelf.height, wobble: shelf.wobble ?? 4, gapChance: shelf.gapChance ?? 0 };
+  }
+
+  if (shelf.centerOffset != null) {
+    const centerX = WORLD_WIDTH * 0.5 + shelf.centerOffset + shelf.width * 0.5;
+    const centerGround = groundHeightAt(WORLD_WIDTH * 0.5);
+    shelf.x = centerX - shelf.width * 0.5;
+    if (shelf.y === 0) {
+      shelf.y = centerGround - 228;
+    }
+    return { x: shelf.x, y: shelf.y, width: shelf.width, height: shelf.height, wobble: shelf.wobble ?? 2, gapChance: shelf.gapChance ?? 0 };
+  }
+
+  const centerX = shelf.x + shelf.width * 0.5;
+  const ground = groundHeightAt(centerX);
+  const y = clamp(ground - shelf.lift, WORLD_HEIGHT * (shelf.minY ?? 0.22), WORLD_HEIGHT * (shelf.maxY ?? 0.72));
+  return { x: shelf.x, y, width: shelf.width, height: shelf.height, wobble: shelf.wobble ?? 4, gapChance: shelf.gapChance ?? 0 };
+}
+
+function polygonBounds(points) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const point of points) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
+
+function pointInPolygon(x, y, points) {
+  let inside = false;
+
+  for (let i = 0, j = points.length - 1; i < points.length; j = i, i += 1) {
+    const xi = points[i].x;
+    const yi = points[i].y;
+    const xj = points[j].x;
+    const yj = points[j].y;
+    const intersects = ((yi > y) !== (yj > y))
+      && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 0.00001) + xi);
+
+    if (intersects) {
+      inside = !inside;
+    }
+  }
+
+  return inside;
+}
+
+function createShelfPolygonFromRect(rect, key) {
+  return {
+    key,
+    points: [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y },
+      { x: rect.x + rect.width - 18, y: rect.y + rect.height },
+      { x: rect.x + 18, y: rect.y + rect.height },
+    ],
+    wobble: rect.wobble ?? 4,
+    gapChance: rect.gapChance ?? 0,
+    seed: key.split("").reduce((sum, char, index) => sum + char.charCodeAt(0) * (index + 1), 0),
+  };
+}
+
+function resetShelfPolygons() {
+  const polygons = [];
+
+  for (const [index, shelf] of terrainLayout.leftSideShelves.entries()) {
+    polygons.push(createShelfPolygonFromRect(getShelfWorldRect(shelf), `left-${index}`));
+    if (shelf.mirror) {
+      polygons.push(createShelfPolygonFromRect(getShelfWorldRect({ ...shelf, x: mirrorX(shelf.x, shelf.width), mirror: false }), `left-${index}-mirror`));
+    }
+  }
+
+  for (const [index, shelf] of terrainLayout.bridgeShelves.entries()) {
+    polygons.push(createShelfPolygonFromRect(getShelfWorldRect(shelf), `bridge-${index}`));
+  }
+
+  for (const [index, shelf] of terrainLayout.jumpAssistShelves.entries()) {
+    polygons.push(createShelfPolygonFromRect(getShelfWorldRect(shelf), `jump-${index}`));
+    if (shelf.mirror) {
+      polygons.push(createShelfPolygonFromRect(getShelfWorldRect({ ...shelf, x: mirrorX(shelf.x, shelf.width), mirror: false }), `jump-${index}-mirror`));
+    }
+  }
+
+  for (const [index, shelf] of terrainLayout.spawnShelters.entries()) {
+    polygons.push(createShelfPolygonFromRect(getShelfWorldRect(shelf), `spawn-${index}`));
+  }
+
+  for (const [index, shelf] of terrainLayout.topCoverShelves.entries()) {
+    polygons.push(createShelfPolygonFromRect(getShelfWorldRect(shelf), `cover-${index}`));
+  }
+
+  terrainLayout.shelfPolygons = polygons;
+}
+
+function drawShelfPolygon(shelf) {
+  const bounds = polygonBounds(shelf.points);
+  const topGradient = terrainCtx.createLinearGradient(bounds.minX, bounds.minY, bounds.minX, bounds.maxY);
+  topGradient.addColorStop(0, "#789369");
+  topGradient.addColorStop(0.26, "#61775a");
+  topGradient.addColorStop(1, "#39444d");
+
+  terrainCtx.fillStyle = topGradient;
+  terrainCtx.beginPath();
+  shelf.points.forEach((point, index) => {
+    if (index === 0) {
+      terrainCtx.moveTo(point.x, point.y);
+    } else {
+      terrainCtx.lineTo(point.x, point.y);
+    }
+  });
+  terrainCtx.closePath();
+  terrainCtx.fill();
+
+  terrainCtx.strokeStyle = "#95ad7a";
+  terrainCtx.lineWidth = 4;
+  terrainCtx.beginPath();
+  terrainCtx.moveTo(shelf.points[0].x + 6, shelf.points[0].y + 2);
+  terrainCtx.lineTo(shelf.points[1].x - 6, shelf.points[1].y + 2);
+  terrainCtx.stroke();
+
+  const mossCount = Math.max(3, Math.floor(bounds.width / 90));
+  for (let i = 0; i < mossCount; i += 1) {
+    const baseSeed = shelf.seed * 0.013 + i * 1.7;
+    const mossX = randFromSeed(baseSeed, bounds.minX + 14, bounds.maxX - 18);
+    const mossY = randFromSeed(baseSeed + 1, bounds.minY + 5, bounds.maxY - 4);
+    terrainCtx.fillStyle = i % 2 === 0 ? "rgba(113, 132, 89, 0.24)" : "rgba(188, 166, 111, 0.12)";
     terrainCtx.beginPath();
-    terrainCtx.moveTo(x + 2, y - height + 7);
-    terrainCtx.lineTo(x + width - 2, y - height + 7);
-    terrainCtx.moveTo(x + 2, y - height + 15);
-    terrainCtx.lineTo(x + width - 2, y - height + 15);
-    terrainCtx.lineTo(x + width - 2, y - height + 23);
-    terrainCtx.stroke();
+    terrainCtx.ellipse(
+      mossX,
+      mossY,
+      randFromSeed(baseSeed + 2, 10, 22),
+      randFromSeed(baseSeed + 3, 4, 9),
+      randFromSeed(baseSeed + 4, 0, Math.PI),
+      0,
+      Math.PI * 2,
+    );
+    terrainCtx.fill();
   }
 
-  function placeObstacleSet(baseX, baseY, variant = "crate") {
-    if (variant === "crate") {
-      stampCrate(baseX, baseY, 24);
-      if (Math.random() < 0.45) {
-        stampCrate(baseX + 24, baseY, 20);
-      }
-      return;
-    }
-
-    stampBarrel(baseX, baseY, 18, 30);
-    if (Math.random() < 0.4) {
-      stampBarrel(baseX + 18, baseY, 18, 30);
-    }
+  if (noise(shelf.seed * 0.021) < shelf.gapChance) {
+    carveTerrain(
+      randFromSeed(shelf.seed + 1, bounds.minX + 24, bounds.maxX - 24),
+      randFromSeed(shelf.seed + 2, bounds.minY + 4, bounds.maxY - 3),
+      randFromSeed(shelf.seed + 3, 8, 12),
+    );
   }
+}
 
+function createTerrain() {
+  terrainCtx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+  const heights = buildGroundHeights();
+  currentGroundHeights = heights;
+  if (terrainLayout.shelfPolygons.length === 0) {
+    resetShelfPolygons();
+  }
   terrainCtx.fillStyle = "#2f3d47";
   terrainCtx.beginPath();
   terrainCtx.moveTo(0, WORLD_HEIGHT);
@@ -483,72 +763,35 @@ function createTerrain() {
 
   terrainCtx.fillStyle = "rgba(255,255,255,0.05)";
   for (let i = 0; i < 40; i += 1) {
-    const hillX = rand(0, WORLD_WIDTH);
-    const hillY = rand(WORLD_HEIGHT * 0.62, WORLD_HEIGHT * 0.9);
+    const hillX = randFromSeed(i * 2.27, 0, WORLD_WIDTH);
+    const hillY = randFromSeed(i * 3.31, WORLD_HEIGHT * 0.62, WORLD_HEIGHT * 0.9);
     terrainCtx.beginPath();
-    terrainCtx.ellipse(hillX, hillY, rand(40, 120), rand(18, 40), rand(0, Math.PI), 0, Math.PI * 2);
+    terrainCtx.ellipse(
+      hillX,
+      hillY,
+      randFromSeed(i * 4.49, 40, 120),
+      randFromSeed(i * 5.77, 18, 40),
+      randFromSeed(i * 6.83, 0, Math.PI),
+      0,
+      Math.PI * 2,
+    );
     terrainCtx.fill();
   }
 
   for (let i = 0; i < 4; i += 1) {
-    carveTerrain(rand(220, WORLD_WIDTH - 220), rand(WORLD_HEIGHT * 0.2, WORLD_HEIGHT * 0.3), rand(16, 22));
+    carveTerrain(
+      randFromSeed(i * 8.11, 220, WORLD_WIDTH - 220),
+      randFromSeed(i * 9.07, WORLD_HEIGHT * 0.2, WORLD_HEIGHT * 0.3),
+      randFromSeed(i * 10.13, 16, 22),
+    );
   }
 
   terrainCtx.fillStyle = "#31414a";
   terrainCtx.strokeStyle = "#7e9a6c";
   terrainCtx.lineWidth = 5;
   terrainCtx.lineJoin = "round";
-
-  function mirrorX(leftX, width) {
-    return WORLD_WIDTH - leftX - width;
-  }
-
-  const leftSideShelves = [
-    { role: "spawn_low", x: 150, width: 360, lift: 50, height: 20, wobble: 4 },
-    { role: "spawn_high", x: 620, width: 280, lift: 118, height: 18, wobble: 6 },
-    { role: "mid_path", x: 1020, width: 350, lift: 72, height: 20, wobble: 5 },
-    { role: "sniper_perch", x: 1470, width: 260, lift: 144, height: 18, wobble: 6 },
-  ];
-
-  for (const shelf of leftSideShelves) {
-    const localGround = groundHeightAt(shelf.x + shelf.width * 0.5);
-    const shelfY = clamp(localGround - shelf.lift, WORLD_HEIGHT * 0.26, WORLD_HEIGHT * 0.66);
-    drawShelf(shelf.x, shelfY, shelf.width, shelf.height, shelf.wobble, 0.14);
-    const mirroredX = mirrorX(shelf.x, shelf.width);
-    const mirroredGround = groundHeightAt(mirroredX + shelf.width * 0.5);
-    const mirroredY = clamp(mirroredGround - shelf.lift, WORLD_HEIGHT * 0.26, WORLD_HEIGHT * 0.66);
-    drawShelf(mirroredX, mirroredY, shelf.width, shelf.height, shelf.wobble, 0.14);
-  }
-
-  const bridgeShelves = [
-    { x: 760, width: 170, lift: 188 },
-    { x: 1710, width: 190, lift: 214 },
-    { x: 2310, width: 190, lift: 214 },
-    { x: 3270, width: 170, lift: 188 },
-  ];
-
-  for (const shelf of bridgeShelves) {
-    const localGround = groundHeightAt(shelf.x + shelf.width * 0.5);
-    const shelfY = clamp(localGround - shelf.lift, WORLD_HEIGHT * 0.22, WORLD_HEIGHT * 0.54);
-    drawShelf(shelf.x, shelfY, shelf.width, 14, 4, 0);
-  }
-
-  const jumpAssistShelves = [
-    { x: 340, width: 120, lift: 38 },
-    { x: 1040, width: 120, lift: 42 },
-    { x: 1520, width: 120, lift: 42 },
-    { x: 1640, width: 110, lift: 34 },
-  ];
-
-  for (const shelf of jumpAssistShelves) {
-    const leftGround = groundHeightAt(shelf.x + shelf.width * 0.5);
-    const leftY = clamp(leftGround - shelf.lift, WORLD_HEIGHT * 0.44, WORLD_HEIGHT * 0.69);
-    drawShelf(shelf.x, leftY, shelf.width, 13, 3, 0);
-
-    const mirroredX = mirrorX(shelf.x, shelf.width);
-    const rightGround = groundHeightAt(mirroredX + shelf.width * 0.5);
-    const rightY = clamp(rightGround - shelf.lift, WORLD_HEIGHT * 0.44, WORLD_HEIGHT * 0.69);
-    drawShelf(mirroredX, rightY, shelf.width, 13, 3, 0);
+  for (const shelf of terrainLayout.shelfPolygons) {
+    drawShelfPolygon(shelf);
   }
 
   const centerX = WORLD_WIDTH * 0.5;
@@ -587,26 +830,6 @@ function createTerrain() {
   carveTerrain(centerX, centerGround + 82, 120);
   carveTerrain(centerX, centerGround + 154, 92);
 
-  const spawnShelters = [
-    { x: 120, width: 180, lift: 20 },
-    { x: WORLD_WIDTH - 300, width: 180, lift: 20 },
-  ];
-
-  for (const shelter of spawnShelters) {
-    const localGround = groundHeightAt(shelter.x + shelter.width * 0.5);
-    const shelfY = clamp(localGround - shelter.lift, WORLD_HEIGHT * 0.54, WORLD_HEIGHT * 0.72);
-    drawShelf(shelter.x, shelfY, shelter.width, 20, 3, 0);
-  }
-
-  const topCoverShelves = [
-    { x: centerX - 110, width: 90, y: centerGround - 228 },
-    { x: centerX + 20, width: 90, y: centerGround - 228 },
-  ];
-
-  for (const shelf of topCoverShelves) {
-    drawShelf(shelf.x, shelf.y, shelf.width, 12, 2, 0);
-  }
-
   const obstacleSpots = [
     { x: 278, y: groundHeightAt(278) - 2, variant: "crate" },
     { x: 688, y: groundHeightAt(688) - 2, variant: "barrel" },
@@ -623,6 +846,277 @@ function createTerrain() {
   for (const spot of obstacleSpots) {
     placeObstacleSet(spot.x, spot.y, spot.variant);
   }
+}
+
+function screenToWorld(screenX, screenY) {
+  return { x: screenX + cameraX, y: screenY + cameraY };
+}
+
+function getEditableShelves() {
+  return terrainLayout.shelfPolygons.map((shelf, index) => ({ shelf, key: shelf.key ?? `poly-${index}` }));
+}
+
+function getEditorHandles() {
+  const handles = terrainLayout.profile.map((point, index) => ({
+    id: `ground-${index}`,
+    type: "ground",
+    point,
+    index,
+    x: point.x * WORLD_WIDTH,
+    y: point.y * WORLD_HEIGHT,
+    radius: 22,
+  }));
+
+  for (const entry of getEditableShelves()) {
+    handles.push({
+      id: `${entry.key}-move`,
+      type: "shelf-polygon-move",
+      shelf: entry.shelf,
+      entry,
+      x: polygonBounds(entry.shelf.points).minX + polygonBounds(entry.shelf.points).width * 0.5,
+      y: polygonBounds(entry.shelf.points).minY - 18,
+      radius: 22,
+    });
+    entry.shelf.points.forEach((point, pointIndex) => {
+      handles.push({
+        id: `${entry.key}-vertex-${pointIndex}`,
+        type: "shelf-vertex",
+        shelf: entry.shelf,
+        entry,
+        point,
+        pointIndex,
+        x: point.x,
+        y: point.y,
+        radius: 18,
+      });
+    });
+  }
+
+  return handles;
+}
+
+function pickEditorHandle(worldX, worldY) {
+  for (const entry of getEditableShelves()) {
+    const bounds = polygonBounds(entry.shelf.points);
+    if (pointInPolygon(worldX, worldY, entry.shelf.points)) {
+      return {
+        id: `${entry.key}-move`,
+        type: "shelf-polygon-move",
+        shelf: entry.shelf,
+        entry,
+        x: bounds.minX + bounds.width * 0.5,
+        y: bounds.minY - 18,
+        radius: 22,
+      };
+    }
+  }
+
+  let best = null;
+  let bestDistance = Infinity;
+
+  for (const handle of getEditorHandles()) {
+    const distance = Math.hypot(worldX - handle.x, worldY - handle.y);
+    if (distance <= handle.radius + 16 && distance < bestDistance) {
+      best = handle;
+      bestDistance = distance;
+    }
+  }
+
+  if (best) {
+    return best;
+  }
+
+  for (let index = 0; index < terrainLayout.profile.length - 1; index += 1) {
+    const left = terrainLayout.profile[index];
+    const right = terrainLayout.profile[index + 1];
+    const ax = left.x * WORLD_WIDTH;
+    const ay = left.y * WORLD_HEIGHT;
+    const bx = right.x * WORLD_WIDTH;
+    const by = right.y * WORLD_HEIGHT;
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lengthSquared = abx * abx + aby * aby;
+    if (lengthSquared < 1) {
+      continue;
+    }
+    const t = clamp(((worldX - ax) * abx + (worldY - ay) * aby) / lengthSquared, 0, 1);
+    const px = ax + abx * t;
+    const py = ay + aby * t;
+    const distance = Math.hypot(worldX - px, worldY - py);
+    if (distance <= 28) {
+      const point = t < 0.5 ? terrainLayout.profile[index] : terrainLayout.profile[index + 1];
+      const pointIndex = t < 0.5 ? index : index + 1;
+      return {
+        id: `ground-${pointIndex}`,
+        type: "ground",
+        point,
+        index: pointIndex,
+        x: point.x * WORLD_WIDTH,
+        y: point.y * WORLD_HEIGHT,
+        radius: 12,
+      };
+    }
+  }
+
+  return best;
+}
+
+function sameHandle(left, right) {
+  return Boolean(left && right && left.id === right.id);
+}
+
+function refreshEditedTerrain() {
+  createTerrain();
+  rebuildPickups();
+}
+
+function setEditMode(enabled) {
+  editor.enabled = enabled;
+  editor.dragging = null;
+  editor.hover = null;
+  mouse.down = false;
+  mouse.rightDown = false;
+  ui.editToggle.classList.toggle("is-active", enabled);
+  ui.status.textContent = enabled
+    ? "Edit mode: drag ground points and shelf handles."
+    : "Arena ready. LMB fire, RMB jetpack.";
+
+  if (!enabled) {
+    rebuildPickups();
+    respawnActor(player);
+    bots.forEach(respawnActor);
+  }
+}
+
+function beginEditorDrag(worldX, worldY) {
+  const handle = pickEditorHandle(worldX, worldY);
+  if (!handle) {
+    editor.dragging = null;
+    return;
+  }
+
+  if (handle.type === "ground") {
+    editor.dragging = { type: "ground", handle };
+    return;
+  }
+
+  editor.dragging = {
+    type: handle.type,
+    shelf: handle.shelf,
+    entry: handle.entry,
+    point: handle.point,
+    pointIndex: handle.pointIndex,
+    grabOffsetX: worldX - handle.x,
+    grabOffsetY: worldY - handle.y,
+    originalPoints: handle.shelf.points.map((point) => ({ ...point })),
+  };
+}
+
+function updateEditorDrag(worldX, worldY) {
+  if (!editor.dragging) {
+    editor.hover = pickEditorHandle(worldX, worldY);
+    return;
+  }
+
+  if (editor.dragging.type === "ground") {
+    const { handle } = editor.dragging;
+    const point = handle.point;
+    const previous = terrainLayout.profile[Math.max(0, handle.index - 1)];
+    const next = terrainLayout.profile[Math.min(terrainLayout.profile.length - 1, handle.index + 1)];
+    const minX = handle.index === 0 ? 0 : previous.x + 0.03;
+    const maxX = handle.index === terrainLayout.profile.length - 1 ? 1 : next.x - 0.03;
+    point.x = clamp(worldX / WORLD_WIDTH, minX, maxX);
+    point.y = clamp(worldY / WORLD_HEIGHT, 0.48, 0.82);
+    refreshEditedTerrain();
+    return;
+  }
+
+  const shelf = editor.dragging.shelf;
+  const entry = editor.dragging.entry;
+
+  if (editor.dragging.type === "shelf-polygon-move") {
+    const dx = worldX - editor.dragging.grabOffsetX - editor.dragging.originalPoints.reduce((sum, point) => sum + point.x, 0) / editor.dragging.originalPoints.length;
+    const dy = worldY - editor.dragging.grabOffsetY - editor.dragging.originalPoints.reduce((sum, point) => sum + point.y, 0) / editor.dragging.originalPoints.length;
+    shelf.points = editor.dragging.originalPoints.map((point) => ({
+      x: clamp(point.x + dx, 30, WORLD_WIDTH - 30),
+      y: clamp(point.y + dy, 100, WORLD_HEIGHT - 80),
+    }));
+  } else if (editor.dragging.type === "shelf-vertex") {
+    shelf.points[editor.dragging.pointIndex].x = clamp(worldX - editor.dragging.grabOffsetX, 20, WORLD_WIDTH - 20);
+    shelf.points[editor.dragging.pointIndex].y = clamp(worldY - editor.dragging.grabOffsetY, 80, WORLD_HEIGHT - 40);
+  }
+
+  refreshEditedTerrain();
+}
+
+function drawEditorOverlay() {
+  if (!editor.enabled) {
+    return;
+  }
+
+  ctx.fillStyle = "rgba(5, 8, 12, 0.34)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = "rgba(114, 211, 255, 0.85)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  terrainLayout.profile.forEach((point, index) => {
+    const screenX = point.x * WORLD_WIDTH - cameraX;
+    const screenY = point.y * WORLD_HEIGHT - cameraY;
+    if (index === 0) {
+      ctx.moveTo(screenX, screenY);
+    } else {
+      ctx.lineTo(screenX, screenY);
+    }
+  });
+  ctx.stroke();
+
+  for (const entry of getEditableShelves()) {
+    const bounds = polygonBounds(entry.shelf.points);
+    ctx.strokeStyle = "rgba(255, 207, 115, 0.88)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    entry.shelf.points.forEach((point, index) => {
+      if (index === 0) {
+        ctx.moveTo(point.x - cameraX, point.y - cameraY);
+      } else {
+        ctx.lineTo(point.x - cameraX, point.y - cameraY);
+      }
+    });
+    ctx.closePath();
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(bounds.minX + bounds.width * 0.5 - cameraX, bounds.minY - 18 - cameraY, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 207, 115, 0.9)";
+    ctx.fill();
+  }
+
+  for (const handle of getEditorHandles()) {
+    const active = sameHandle(editor.hover, handle)
+      || sameHandle(editor.dragging?.handle, handle)
+      || (editor.dragging?.shelf === handle.shelf && handle.type === editor.dragging?.type);
+    ctx.fillStyle = handle.type === "ground" ? (active ? "#61dfff" : "#c8f8ff") : (active ? "#ffbf47" : "#ffe39a");
+    ctx.strokeStyle = active ? "#081018" : "rgba(8, 16, 24, 0.85)";
+    ctx.lineWidth = 3;
+    if (handle.type === "ground" || handle.type === "shelf-vertex") {
+      ctx.beginPath();
+      ctx.rect(handle.x - cameraX - 8, handle.y - cameraY - 8, 16, 16);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.beginPath();
+      ctx.arc(handle.x - cameraX, handle.y - cameraY, handle.radius * 0.45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  ctx.fillStyle = "rgba(8, 12, 18, 0.82)";
+  ctx.fillRect(14, canvas.height - 54, 360, 40);
+  ctx.fillStyle = "#ebf4ff";
+  ctx.font = '14px "Trebuchet MS", "Segoe UI", sans-serif';
+  ctx.fillText("Edit mode: drag terrain points and shelf handles. Game paused.", 26, canvas.height - 29);
 }
 
 function createActor(options) {
@@ -644,7 +1138,8 @@ function createActor(options) {
     ammo: weaponCatalog.rifle.ammo,
     grenades: MAX_GRENADES,
     grenadeCooldown: 0,
-    grapple: null,
+    jetpackFuel: JETPACK_MAX_FUEL,
+    jetpackActive: false,
     kills: 0,
     deadTimer: 0,
     isBot: options.isBot,
@@ -747,7 +1242,8 @@ function respawnActor(actor) {
   actor.reload = 0;
   actor.ammo = getWeaponStats(actor).ammo;
   actor.grenades = MAX_GRENADES;
-  actor.grapple = null;
+  actor.jetpackFuel = JETPACK_MAX_FUEL;
+  actor.jetpackActive = false;
 }
 
 function switchWeapon(actor, weaponKey) {
@@ -910,7 +1406,7 @@ function damageActor(actor, amount, source) {
 
   actor.deadTimer = 2.4;
   actor.hp = 0;
-  actor.grapple = null;
+  actor.jetpackActive = false;
   actor.fireQueue = 0;
   actor.fireQueueDelay = 0;
   spawnCorpse(actor, source);
@@ -924,8 +1420,9 @@ function damageActor(actor, amount, source) {
   }
 }
 
-function updateActorMovement(actor, inputX, wantsJump, sprint, dt) {
+function updateActorMovement(actor, inputX, wantsJump, sprint, wantsJetpack, dt) {
   if (actor.deadTimer > 0) {
+    actor.jetpackActive = false;
     actor.vx *= Math.pow(0.1, dt);
     actor.vy += GRAVITY * dt;
     actor.x += actor.vx * dt;
@@ -965,17 +1462,17 @@ function updateActorMovement(actor, inputX, wantsJump, sprint, dt) {
     actor.jumpBuffer = 0;
   }
 
-  if (actor.grapple) {
-    const dx = actor.grapple.x - actor.x;
-    const dy = actor.grapple.y - actor.y;
-    const dist = Math.hypot(dx, dy);
-    const dir = normalize(dx, dy);
-    if (dist > actor.grapple.length) {
-      const pull = (dist - actor.grapple.length) * 18;
-      actor.vx += dir.x * pull * dt;
-      actor.vy += dir.y * pull * dt;
-    }
-    actor.vy -= 240 * dt;
+  if (wantsJetpack && actor.jetpackFuel > 0) {
+    const thrustDir = normalize(actor.aimX, actor.aimY, actor.facing, -0.35);
+    actor.vx += thrustDir.x * JETPACK_THRUST * dt;
+    actor.vy += thrustDir.y * JETPACK_THRUST * dt;
+    actor.vy -= 180 * dt;
+    actor.jetpackFuel = Math.max(0, actor.jetpackFuel - JETPACK_DRAIN_PER_SECOND * dt);
+    actor.jetpackActive = true;
+    emitJetpackExhaust(actor, thrustDir);
+  } else {
+    actor.jetpackFuel = Math.min(JETPACK_MAX_FUEL, actor.jetpackFuel + JETPACK_REFILL_PER_SECOND * dt);
+    actor.jetpackActive = false;
   }
 
   actor.x += actor.vx * dt;
@@ -1014,35 +1511,17 @@ function updatePlayer(dt) {
   player.aimX = worldMouseX - player.x;
   player.aimY = worldMouseY - player.y;
 
-  updateActorMovement(player, inputX, keys.has("KeyW"), sprint, dt);
-
   if (mouse.down) {
     shoot(player);
   }
 
-  if (mouse.rightDown) {
-    if (!player.grapple) {
-      const hookEndX = player.x + normalize(player.aimX, player.aimY, player.facing, 0).x * 520;
-      const hookEndY = player.y + normalize(player.aimX, player.aimY, player.facing, 0).y * 520;
-      const hit = lineHitsTerrain(player.x, player.y, hookEndX, hookEndY);
-      if (hit) {
-        player.grapple = {
-          x: hit.x,
-          y: hit.y,
-          length: Math.max(80, Math.hypot(hit.x - player.x, hit.y - player.y) * 0.72),
-        };
-        ui.status.textContent = "Grapple attached.";
-      }
-    }
-  } else {
-    player.grapple = null;
-  }
+  updateActorMovement(player, inputX, keys.has("KeyW"), sprint, mouse.rightDown, dt);
 }
 
 function updateBots(dt) {
   for (const bot of bots) {
     if (bot.deadTimer > 0) {
-      updateActorMovement(bot, 0, false, false, dt);
+      updateActorMovement(bot, 0, false, false, false, dt);
       continue;
     }
 
@@ -1083,8 +1562,9 @@ function updateBots(dt) {
     const moveDir = Math.abs(dx) > preferredRange ? Math.sign(dx) : -Math.sign(dx) * 0.35;
     const wallAhead = terrainSolid(bot.x + Math.sign(moveDir || 1) * 26, bot.y + 10);
     const needsJump = wallAhead || target.y + 60 < bot.y;
-
-    updateActorMovement(bot, moveDir, needsJump, Math.abs(dx) > 700, dt);
+    const wantsJetpack =
+      bot.jetpackFuel > JETPACK_MAX_FUEL * 0.15 &&
+      (target.y < bot.y - 130 || (wallAhead && !bot.onGround) || bot.y > target.y + 180);
 
     const hasShot = lineHitsTerrain(bot.x, bot.y, target.x, target.y);
     if (!hasShot && Math.abs(dx) < 760 && Math.abs(dy) < 260) {
@@ -1095,20 +1575,7 @@ function updateBots(dt) {
       throwGrenade(bot);
     }
 
-    if (Math.random() < 0.004) {
-      const hookEndX = bot.x + normalize(bot.aimX, bot.aimY, bot.facing, 0).x * 420;
-      const hookEndY = bot.y + normalize(bot.aimX, bot.aimY, bot.facing, 0).y * 420;
-      const hit = lineHitsTerrain(bot.x, bot.y, hookEndX, hookEndY);
-      bot.grapple = hit
-        ? {
-            x: hit.x,
-            y: hit.y,
-            length: Math.max(70, Math.hypot(hit.x - bot.x, hit.y - bot.y) * 0.75),
-          }
-        : null;
-    } else if (Math.random() < 0.01) {
-      bot.grapple = null;
-    }
+    updateActorMovement(bot, moveDir, needsJump, Math.abs(dx) > 700, wantsJetpack, dt);
   }
 }
 
@@ -1464,19 +1931,31 @@ function drawActor(targetCtx, actor) {
   const gunTipY = gunBaseY + aim.y * 30;
   const armBendX = shoulderX + aim.x * 6 - aim.y * 3;
   const armBendY = shoulderY + aim.y * 6 + aim.x * 3;
-  const stepSwing = Math.sin(moveCycle) * 8 * runAmount;
-  const oppositeSwing = Math.sin(moveCycle + Math.PI) * 8 * runAmount;
-  const kneeLift = airborne ? -5 : 0;
+  const legCycle = Math.sin(moveCycle);
+  const oppositeLegCycle = Math.sin(moveCycle + Math.PI);
+  const airbornePose = clamp(actor.vy / 420, -1, 1);
   const trailAlpha = clamp((Math.abs(actor.vx) + Math.abs(actor.vy) * 0.35) / 420, 0, 0.22);
 
-  if (actor.grapple) {
-    targetCtx.strokeStyle = "rgba(224, 234, 246, 0.8)";
-    targetCtx.lineWidth = 2;
-    targetCtx.beginPath();
-    targetCtx.moveTo(shoulderX, shoulderY);
-    targetCtx.lineTo(actor.grapple.x - cameraX, actor.grapple.y - cameraY);
-    targetCtx.stroke();
+  function legPose(side, cycle) {
+    if (airborne) {
+      const forward = side * (10 + Math.max(0, -airbornePose) * 8 - Math.max(0, airbornePose) * 6);
+      const kneeX = forward * 0.52;
+      const kneeY = 15 - Math.max(0, -airbornePose) * 4 + Math.max(0, airbornePose) * 7;
+      const footX = forward * 1.16;
+      const footY = 31 + Math.max(0, airbornePose) * 4;
+      return { kneeX, kneeY, footX, footY };
+    }
+
+    const stride = cycle * 10 * runAmount;
+    const kneeX = side * 1.5 + stride * 0.52;
+    const kneeY = 15 + Math.max(0, -cycle) * 6 * runAmount;
+    const footX = side * 5 + stride * 1.24;
+    const footY = 29 - Math.max(0, cycle) * 4 * runAmount + Math.max(0, -cycle) * 2.5 * runAmount;
+    return { kneeX, kneeY, footX, footY };
   }
+
+  const backLeg = legPose(-1, legCycle);
+  const frontLeg = legPose(1, oppositeLegCycle);
 
   if (trailAlpha > 0.02) {
     targetCtx.globalAlpha = trailAlpha;
@@ -1500,11 +1979,11 @@ function drawActor(targetCtx, actor) {
   targetCtx.lineWidth = 4;
   targetCtx.beginPath();
   targetCtx.moveTo(-1, 7);
-  targetCtx.lineTo(-7, 18 + stepSwing * 0.28 + kneeLift);
-  targetCtx.lineTo(-11, 27 + Math.abs(stepSwing) * 0.16 + kneeLift);
+  targetCtx.lineTo(backLeg.kneeX, backLeg.kneeY);
+  targetCtx.lineTo(backLeg.footX, backLeg.footY);
   targetCtx.moveTo(1, 7);
-  targetCtx.lineTo(8, 18 + oppositeSwing * 0.28 + kneeLift);
-  targetCtx.lineTo(11, 27 + Math.abs(oppositeSwing) * 0.16 + kneeLift);
+  targetCtx.lineTo(frontLeg.kneeX, frontLeg.kneeY);
+  targetCtx.lineTo(frontLeg.footX, frontLeg.footY);
   targetCtx.stroke();
 
   targetCtx.lineWidth = 6;
@@ -1517,11 +1996,11 @@ function drawActor(targetCtx, actor) {
   targetCtx.lineWidth = 4;
   targetCtx.beginPath();
   targetCtx.moveTo(-1, 7);
-  targetCtx.lineTo(-7, 18 + stepSwing * 0.28 + kneeLift);
-  targetCtx.lineTo(-11, 27 + Math.abs(stepSwing) * 0.16 + kneeLift);
+  targetCtx.lineTo(backLeg.kneeX, backLeg.kneeY);
+  targetCtx.lineTo(backLeg.footX, backLeg.footY);
   targetCtx.moveTo(1, 7);
-  targetCtx.lineTo(8, 18 + oppositeSwing * 0.28 + kneeLift);
-  targetCtx.lineTo(11, 27 + Math.abs(oppositeSwing) * 0.16 + kneeLift);
+  targetCtx.lineTo(frontLeg.kneeX, frontLeg.kneeY);
+  targetCtx.lineTo(frontLeg.footX, frontLeg.footY);
   targetCtx.stroke();
 
   targetCtx.strokeStyle = actor === player ? "#5b6c5f" : "#6f8674";
@@ -1532,6 +2011,19 @@ function drawActor(targetCtx, actor) {
   targetCtx.stroke();
 
   targetCtx.restore();
+
+  function drawKneeJoint(pose, fill, stroke) {
+    targetCtx.fillStyle = fill;
+    targetCtx.strokeStyle = stroke;
+    targetCtx.lineWidth = 1.5;
+    targetCtx.beginPath();
+    targetCtx.arc(torsoX + pose.kneeX, torsoY + pose.kneeY, 2.6, 0, Math.PI * 2);
+    targetCtx.fill();
+    targetCtx.stroke();
+  }
+
+  drawKneeJoint(backLeg, actor === player ? "#a7b79d" : "#95a88f", "rgba(0,0,0,0.42)");
+  drawKneeJoint(frontLeg, actor === player ? "#b5c5ab" : "#a1b59b", "rgba(0,0,0,0.42)");
 
   targetCtx.strokeStyle = "#10151b";
   targetCtx.lineWidth = 5;
@@ -1778,6 +2270,7 @@ let dtGlobal = 1 / 60;
 
 function updateUi() {
   ui.hp.textContent = Math.max(0, Math.round(player.hp));
+  ui.fuel.textContent = `${Math.round(player.jetpackFuel)}%`;
   ui.weapon.textContent = getWeaponStats(player).label;
   ui.ammo.textContent = player.ammo;
   ui.grenade.textContent = player.grenades;
@@ -1786,17 +2279,19 @@ function updateUi() {
 
 function gameLoop(now) {
   const dt = Math.min((now - lastTime) / 1000, 0.033);
-  dtGlobal = dt;
+  dtGlobal = editor.enabled ? 0 : dt;
   lastTime = now;
 
-  updatePlayer(dt);
-  updateBots(dt);
-  updateQueuedShots(dt);
-  updateBullets(dt);
-  updateGrenades(dt);
-  updatePickups(dt);
-  updateCorpses(dt);
-  updateEffects(dt);
+  if (!editor.enabled) {
+    updatePlayer(dt);
+    updateBots(dt);
+    updateQueuedShots(dt);
+    updateBullets(dt);
+    updateGrenades(dt);
+    updatePickups(dt);
+    updateCorpses(dt);
+    updateEffects(dt);
+  }
 
   cameraX += (clamp(player.x - canvas.width * 0.4, 0, WORLD_WIDTH - canvas.width) - cameraX) * Math.min(1, dt * 6);
   cameraY += (clamp(player.y - canvas.height * 0.55, 0, WORLD_HEIGHT - canvas.height) - cameraY) * Math.min(1, dt * 6);
@@ -1814,6 +2309,7 @@ function gameLoop(now) {
   drawEffects(sceneCtx);
   drawHudOverlay(sceneCtx);
   compositeScene();
+  drawEditorOverlay();
   updateUi();
 
   requestAnimationFrame(gameLoop);
@@ -1826,6 +2322,9 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (event.code === "KeyG") {
+    if (editor.enabled) {
+      return;
+    }
     throwGrenade(player);
   }
 
@@ -1846,6 +2345,9 @@ window.addEventListener("keydown", (event) => {
   }
 
   if (event.code === "KeyR") {
+    if (editor.enabled) {
+      return;
+    }
     respawnActor(player);
   }
 });
@@ -1860,9 +2362,21 @@ canvas.addEventListener("mousemove", (event) => {
   const rect = canvas.getBoundingClientRect();
   mouse.x = ((event.clientX - rect.left) / rect.width) * canvas.width;
   mouse.y = ((event.clientY - rect.top) / rect.height) * canvas.height;
+  if (editor.enabled) {
+    const world = screenToWorld(mouse.x, mouse.y);
+    updateEditorDrag(world.x, world.y);
+  }
 });
 
 canvas.addEventListener("mousedown", (event) => {
+  if (editor.enabled) {
+    if (event.button === 0) {
+      const world = screenToWorld(mouse.x, mouse.y);
+      beginEditorDrag(world.x, world.y);
+    }
+    return;
+  }
+
   if (event.button === 0) {
     mouse.down = true;
   }
@@ -1872,6 +2386,9 @@ canvas.addEventListener("mousedown", (event) => {
 });
 
 window.addEventListener("mouseup", (event) => {
+  if (editor.enabled && event.button === 0) {
+    editor.dragging = null;
+  }
   if (event.button === 0) {
     mouse.down = false;
   }
@@ -1884,13 +2401,17 @@ canvas.addEventListener("contextmenu", (event) => {
   event.preventDefault();
 });
 
+ui.editToggle.addEventListener("click", () => {
+  setEditMode(!editor.enabled);
+});
+
 resizeCanvas();
 createTerrain();
 spawnBots();
 rebuildPickups();
 respawnActor(player);
 bots.forEach(respawnActor);
-ui.status.textContent = "Arena ready. LMB fire, RMB grapple.";
+ui.status.textContent = "Arena ready. LMB fire, RMB jetpack.";
 ui.botCountInput.value = String(desiredBotCount);
 ui.botCountValue.textContent = String(desiredBotCount);
 ui.botCountInput.addEventListener("input", (event) => {

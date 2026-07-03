@@ -64,6 +64,27 @@ body {
   pointer-events: auto;
 }
 
+.edit-toggle {
+  position: absolute;
+  top: 14px;
+  right: calc(var(--sidebar-width) + 14px);
+  z-index: 4;
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(8, 12, 18, 0.88);
+  color: var(--text);
+  font-size: 1.35rem;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+}
+
+.edit-toggle.is-active {
+  background: rgba(255, 106, 61, 0.18);
+  border-color: rgba(255, 146, 111, 0.48);
+  color: #ffe6da;
+}
+
 h1, h2, p, ul {
   margin: 0;
 }
@@ -172,6 +193,10 @@ kbd {
     right: 0;
   }
 
+  .edit-toggle {
+    right: 14px;
+  }
+
   .panel {
     top: auto;
     left: 0;
@@ -188,6 +213,13 @@ kbd {
 @media (max-width: 720px) {
   .topbar {
     padding: 8px;
+  }
+
+  .edit-toggle {
+    top: 10px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
   }
 
   .scoreboard {
